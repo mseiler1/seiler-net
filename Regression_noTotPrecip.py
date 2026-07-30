@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 #All imports for the model
 import numpy as np
 import pandas as pd
@@ -20,13 +17,13 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-
+print("first batch of imports in")
 # In[2]:
 
 
 #For plotting. 
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
+# import matplotlib.pyplot as plt
+# import matplotlib.font_manager as fm
 
 
 # In[3]:
@@ -75,8 +72,8 @@ testing_LWI_amazon =  xr.open_mfdataset('/home/mseiler1/scratch.pickerin-prj/tes
 testing_Lopez_usa = xr.open_mfdataset('/home/mseiler1/scratch.pickerin-prj/testing_Lopez_us.nc')
 testing_Lopez_amazon = xr.open_mfdataset('/home/mseiler1/scratch.pickerin-prj/testing_Lopez_amazon.nc')
 
-
-# In[26]:
+print("All data in. Line 78")
+# # In[26]:
 
 
 # # 1. Define what you want to exclude
@@ -93,7 +90,7 @@ total_testing_features_USA = testing_features_usa[features_to_use]
 total_testing_features_Amazon = testing_features_amazon[features_to_use]
 
 
-# In[27]:
+# # In[27]:
 
 
 #Standardizing the Features. So, we want to only pass in the training features here. 
@@ -125,7 +122,7 @@ for var in total_training_features_filtered.data_vars:
 train_features_scaled = xr.Dataset(train_scaled, coords=total_training_features.coords)
 
 
-# In[ ]:
+# # In[ ]:
 
 
 import joblib
@@ -176,7 +173,7 @@ def transform_test(test_ds, scalers):
     return xr.Dataset(test_scaled, coords=test_ds.coords)
 
 
-# In[29]:
+# # In[29]:
 
 
 # Apply the transform_test function on the FILTERED data for the USA and the Amazon 
@@ -184,17 +181,17 @@ testing_features_scaled_usa     = transform_test(total_testing_features_USA, sca
 testing_features_scaled_amazon  = transform_test(total_testing_features_Amazon, scalers)
 
 
-# #-----#-----#-----#
-# 
-# This is a check point. All the data has been brought in. 
-# The TRAINING features have been standardized.
-# The TESTING features have been standardized. 
-# The flash data, LWI data, and the Lopez data have all been brought in. 
-# Now, they need to be made into dataarrays so they can be put into the custom dataset for training. 
-# 
-# #-----#-----#-----#
+# # #-----#-----#-----#
+# # 
+# # This is a check point. All the data has been brought in. 
+# # The TRAINING features have been standardized.
+# # The TESTING features have been standardized. 
+# # The flash data, LWI data, and the Lopez data have all been brought in. 
+# # Now, they need to be made into dataarrays so they can be put into the custom dataset for training. 
+# # 
+# # #-----#-----#-----#
 
-# In[32]:
+# # In[32]:
 
 
 #Making it into a dataarray to be used for training
@@ -228,16 +225,9 @@ flashes_array = xr.concat(
 ) 
 
 
-# In[35]:
-
-
-#I will print all shapes here. 
-
 # ALL DATA PRE-PROCESSING IS COMPLETE. 
 
 # In[36]:
-
-
 #This is a list of new functions: 
 # new funcs for help
 def get_onehot(labels_):
@@ -310,10 +300,7 @@ def get_device():
     return device
 
 
-# In[37]:
-
-
-#### Maria: helper for various run modes
+# # In[37]:
 CLS_KEYS = ("cls_labels", "class_labels", "seg_labels", "cls_label")
 
 RUN_MODES = {
@@ -392,50 +379,138 @@ BATCH_SIZE = 50
 alpha = 1.0
 gamma = 0.75
 
-
-# In[40]:
-
-
-#This is where I make the split between training and validataion. 
-#This is being split from the standardized features data. 
-train_feats, valid_feats, train_labels, valid_labels, train_LWI, valid_LWI = train_test_split(
-    train_features_scaled_array.values,
-    flashes_array.values,
-    LWI_array.values,
-    test_size=0.3,
-    shuffle=True,
-    random_state=0
+#This is where I am going to save out for the PFI bundles!!!!
+# Features: (samples, channels, H, W)
+# # ==============================================================================
+# 1. PROCESS USA TEST DATA
+# ==============================================================================
+# Features: strictly expects 4D -> (Datetime, features, Latitudes, Longitudes)
+us_test_features = (
+    testing_features_scaled_usa.to_array(dim="features")
+    .transpose("Datetime", "features", "Latitudes", "Longitudes")
+    .values
 )
-# In[53]:
 
-# In[41]:
+# Target Flashes: uses '...' to safely handle any extra dimensions
+us_test_labels = (
+    testing_flashes_usa["flashes_log"]
+    .transpose("Datetime", ..., "Latitudes", "Longitudes")
+    .values
+)
+if us_test_labels.ndim == 3:
+    us_test_labels = np.expand_dims(us_test_labels, axis=1)
+
+# Land-Water Indicator: uses '...' to safely handle any extra dimensions
+us_LWI_test_array = (
+    testing_LWI_usa["lwi"]
+    .transpose("Datetime", ..., "Latitudes", "Longitudes")
+    .values
+)
+if us_LWI_test_array.ndim == 3:
+    us_LWI_test_array = np.expand_dims(us_LWI_test_array, axis=1)
+
+# Optional Class Labels
+us_test_labels_class = (
+    get_classlbls(us_test_labels) if cfg.get("use_cls_labels") else None
+)
 
 
-#### Maria: created classification labels here from original regression labels
+# ==============================================================================
+# 2. PROCESS AMAZON TEST DATA
+# ==============================================================================
+# Features: strictly expects 4D -> (Datetime, features, Latitudes, Longitudes)
+amazon_test_features = (
+    testing_features_scaled_amazon.to_array(dim="features")
+    .transpose("Datetime", "features", "Latitudes", "Longitudes")
+    .values
+)
 
-# get onehot classes for multitask
-#train_labels_onehot = get_onehot(train_labels) # not needed but leaving for ref
-#valid_labels_onehot = get_onehot(valid_labels)
+# Target Flashes: uses '...' to safely handle any extra dimensions
+amazon_test_labels = (
+    testing_flashes_amazon["flashes_log"]
+    .transpose("Datetime", ..., "Latitudes", "Longitudes")
+    .values
+)
+if amazon_test_labels.ndim == 3:
+    amazon_test_labels = np.expand_dims(amazon_test_labels, axis=1)
+
+# Land-Water Indicator: uses '...' to safely handle any extra dimensions
+amazon_LWI_test_array = (
+    testing_LWI_amazon["lwi"]
+    .transpose("Datetime", ..., "Latitudes", "Longitudes")
+    .values
+)
+if amazon_LWI_test_array.ndim == 3:
+    amazon_LWI_test_array = np.expand_dims(amazon_LWI_test_array, axis=1)
+
+# Optional Class Labels
+amazon_test_labels_class = (
+    get_classlbls(amazon_test_labels) if cfg.get("use_cls_labels") else None
+)
 
 
-train_labels_class = get_classlbls(train_labels)
-valid_labels_class = get_classlbls(valid_labels)
+# ==============================================================================
+# 3. SAVE BUNDLES
+# ==============================================================================
+usa_pfi_bundle = {
+    "test_feats": us_test_features,
+    "test_labels": us_test_labels,
+    "test_LWI": us_LWI_test_array,
+    "test_labels_class": us_test_labels_class,
+    "cfg": cfg,
+    "BATCH_SIZE": BATCH_SIZE,
+}
+
+amazon_pfi_bundle = {
+    "test_feats": amazon_test_features,
+    "test_labels": amazon_test_labels,
+    "test_LWI": amazon_LWI_test_array,
+    "test_labels_class": amazon_test_labels_class,
+    "cfg": cfg,
+    "BATCH_SIZE": BATCH_SIZE,
+}
+
+torch.save(usa_pfi_bundle, "pfi_bundle_USA.pt")
+print("USA PFI bundle saved to pfi_bundle_USA.pt")
+
+torch.save(amazon_pfi_bundle, "pfi_bundle_Amazon.pt")
+print("Amazon PFI bundle saved to pfi_bundle_Amazon.pt")
+
+# #This is where I make the split between training and validataion. 
+# #This is being split from the standardized features data. 
+# train_feats, valid_feats, train_labels, valid_labels, train_LWI, valid_LWI = train_test_split(
+#     train_features_scaled_array.values,
+#     flashes_array.values,
+#     LWI_array.values,
+#     test_size=0.3,
+#     shuffle=True,
+#     random_state=0
+# )
+# # In[53]
+
+# # get onehot classes for multitask
+# #train_labels_onehot = get_onehot(train_labels) # not needed but leaving for ref
+# #valid_labels_onehot = get_onehot(valid_labels)
 
 
-# In[43]:
+# train_labels_class = get_classlbls(train_labels)
+# valid_labels_class = get_classlbls(valid_labels)
 
 
-#### Maria: added print statements for class labels
+# # In[43]:
 
-#print(train_feats.dims)
-print("Training features: ", train_feats.shape)
-print("Validation features: ", valid_feats.shape)
-print("Training Labels: ", train_labels.shape)
-print("Training Labels: ", train_labels_class.shape) # classification labels (B, H, W)
-print("Validation Labels: ", valid_labels.shape)
-print("Validation Labels: ", valid_labels_class.shape) # classification labels
-print("Training LWI: ", train_LWI.shape)
-print("Validation LWI: ", valid_LWI.shape)
+
+# #### Maria: added print statements for class labels
+
+# #print(train_feats.dims)
+# print("Training features: ", train_feats.shape)
+# print("Validation features: ", valid_feats.shape)
+# print("Training Labels: ", train_labels.shape)
+# print("Training Labels: ", train_labels_class.shape) # classification labels (B, H, W)
+# print("Validation Labels: ", valid_labels.shape)
+# print("Validation Labels: ", valid_labels_class.shape) # classification labels
+# print("Training LWI: ", train_LWI.shape)
+# print("Validation LWI: ", valid_LWI.shape)
 
 
 # In[45]:
@@ -443,1261 +518,1230 @@ print("Validation LWI: ", valid_LWI.shape)
 
 #### Maria: updated these classes and functions for UNet -- updated down stride
 
-class DoubleConv(nn.Module):
-    """(conv => BN => ReLU) * 2"""
-    def __init__(self, in_channels, out_channels, mid_channels=None):
-        super().__init__()
-        mid_channels = out_channels if mid_channels is None else mid_channels
-
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding="same"),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding="same"),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
-
-
-class Down(nn.Module):
-    """Downscaling with maxpool (stride=2) then double conv"""
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2, stride=2), #### stride 2 update -- Maria
-            DoubleConv(in_channels, out_channels),
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class Up(nn.Module):
-    """
-    Upscaling then double conv.
-
-    Explicitly parameterized by:
-      - deep_in: channels coming from deeper layer
-      - skip_in: channels from skip connection
-      - out_channels: output channels after fusion
-    """
-    def __init__(self, deep_in, skip_in, out_channels, bilinear=True):
-        super().__init__()
-        self.bilinear = bilinear
-
-        if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-            up_out = deep_in  # channels unchanged
-        else:
-            # Typically halves channels on upsampling
-            self.up = nn.ConvTranspose2d(deep_in, deep_in // 2, kernel_size=2, stride=2)
-            up_out = deep_in // 2
-
-        self.conv = DoubleConv(up_out + skip_in, out_channels)
-
-    def forward(self, x_deep, x_skip):
-        x_deep = self.up(x_deep)
-
-        # Pad if needed (handles odd input sizes)
-        diffY = x_skip.size(2) - x_deep.size(2)
-        diffX = x_skip.size(3) - x_deep.size(3)
-        x_deep = F.pad(
-            x_deep,
-            [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2],
-        )
-
-        x = torch.cat([x_skip, x_deep], dim=1)
-        return self.conv(x)
-
-
-class OutConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-# In[46]:
-
-
-#### Maria: new multitask unet based on previous classic unet
-
-class MultiTaskUNet(nn.Module):
-    """
-    U-Net (4 downs) with two dense heads:
-      - Regression: [B, C_reg, H, W]
-      - Classification logits: [B, 2, H, W]
-
-    To get classic UNetRegression-like behavior:
-      yhat = model(x, return_reg_only=True)   # returns Tensor [B, C_reg, H, W]
-
-    Default behavior:
-      out = model(x)  # returns dict {"regression": ..., "cls_logits": ...}
-    """
-    def __init__(
-        self,
-        n_channels: int,
-        n_regression_out: int = 1,
-        base_channels: int = 32,
-        bilinear: bool = False,
-        positive_regression: bool = True,
-        n_classes: int = 2,   # keep 2 for your setup
-    ):
-        super().__init__()
-        self.positive_regression = positive_regression
-        self.bilinear = bilinear
-        self.n_classes = n_classes
-
-        c1 = base_channels
-        c2 = base_channels * 2
-        c3 = base_channels * 4
-        c4 = base_channels * 8
-        c5 = base_channels * 16
-
-        # Match the same channel plan we used earlier:
-        # If bilinear, reduce bottleneck for efficiency (common in U-Net variants)
-        bottleneck = c5 // 2 if bilinear else c5
-
-        # Encoder
-        self.inc   = DoubleConv(n_channels, c1)
-        self.down1 = Down(c1, c2)
-        self.down2 = Down(c2, c3)
-        self.down3 = Down(c3, c4)
-        self.down4 = Down(c4, bottleneck)
-
-        # Decoder (shared trunk)
-        if bilinear:
-            self.up1 = Up(bottleneck, c4, c4 // 2, bilinear=True)
-            self.up2 = Up(c4 // 2, c3, c3 // 2, bilinear=True)
-            self.up3 = Up(c3 // 2, c2, c2 // 2, bilinear=True)
-            self.up4 = Up(c2 // 2, c1, c1,      bilinear=True)
-            trunk_out_ch = c1
-        else:
-            self.up1 = Up(bottleneck, c4, c4, bilinear=False)
-            self.up2 = Up(c4,        c3, c3, bilinear=False)
-            self.up3 = Up(c3,        c2, c2, bilinear=False)
-            self.up4 = Up(c2,        c1, c1, bilinear=False)
-            trunk_out_ch = c1
-
-        # Heads
-        self.reg_head = OutConv(trunk_out_ch, n_regression_out)
-        self.cls_head = OutConv(trunk_out_ch, n_classes)
-
-    def forward(self, x, return_reg_only: bool = False):
-        # Encoder
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-
-        # Decoder trunk
-        x = self.up1(x5, x4)
-        x = self.up2(x,  x3)    #Notice what is being passed through 
-        x = self.up3(x,  x2)
-        x = self.up4(x,  x1)
-
-        # Regression head
-        reg_logits = self.reg_head(x)
-        reg_out = F.softplus(reg_logits) if self.positive_regression else reg_logits
-
-        if return_reg_only:    #if specified in Run_Mode I am guessing? 
-            return reg_out
-
-        # Classification head (logits)
-        cls_logits = self.cls_head(x)
-
-        return {"regression": reg_out, "cls_logits": cls_logits}
-
-
-# In[48]:
-
-
-### Maria: this is the new call to the multitask model
-
-net1 = MultiTaskUNet(
-    n_channels=NUM_INPUT_CHANNELS,
-    n_regression_out=1, # dont need to change
-    base_channels=32, # could be something to decrease if overfitting or increase if underfitting
-    bilinear=False,
-    positive_regression=True, # keep true for positive flash prediction
-    n_classes=2 # dont need to change
-    ).to(device)
-
-
-# In[49]:
-
-
-# 1. The Standard Tweedie (for Volume & Totals)
-class TweedieLoss(nn.Module):
-    def __init__(self, p=1.5, reduction='none'): # reduction='none' is CRITICAL
-        super().__init__()
-        self.p = p
-        self.reduction = reduction
-
-    def forward(self, y_pred, y_true):
-        p = self.p
-        loss = (
-            (torch.pow(y_true, 2 - p) / ((1 - p) * (2 - p)))
-            - (y_true * torch.pow(y_pred, 1 - p)) / (1 - p)
-            + (torch.pow(y_pred, 2 - p)) / (2 - p)
-        )
-        if self.reduction == 'mean': return loss.mean()
-        elif self.reduction == 'sum': return loss.sum()
-        else: return loss # Returns per-pixel loss map
-
-
-# In[50]:
-
-
-class CustomDataset(Dataset):
-    def __init__(self, features, labels, cls_labels=None, LWI=None, transform=None):
-        self.features = torch.as_tensor(features, dtype=torch.float32)
-        self.labels = torch.as_tensor(labels, dtype=torch.float32)  # regression: e.g., [N,1,H,W]
-
-        # cls_labels: expected [N,H,W] (class indices). Keep dtype as-is; we’ll cast in __getitem__.
-        self.cls_labels = torch.as_tensor(cls_labels) if cls_labels is not None else None
-
-        self.LWI = torch.as_tensor(LWI, dtype=torch.float32) if LWI is not None else None
-        self.transform = transform
-
-        if len(self.features) != len(self.labels):
-            raise ValueError(f"features and labels length mismatch: {len(self.features)} vs {len(self.labels)}")
-        if self.cls_labels is not None and len(self.cls_labels) != len(self.features):
-            raise ValueError(f"cls_labels length mismatch: {len(self.cls_labels)} vs {len(self.features)}")
-        if self.LWI is not None and len(self.LWI) != len(self.features):
-            raise ValueError(f"LWI length mismatch: {len(self.LWI)} vs {len(self.features)}")
-
-    def __len__(self):
-        return len(self.features)
-
-    @staticmethod
-    def _flip_feature_chw(x):
-        # x is [C,H,W]
-        return torch.flip(x, dims=[1])
-
-    @staticmethod
-    def _flip_label_chw(x):
-        # regression label is typically [1,H,W] (still CHW)
-        return torch.flip(x, dims=[1])
-
-    @staticmethod
-    def _flip_hw(x):
-        # cls_labels stored as [H,W]
-        return torch.flip(x, dims=[0])
-
-    def __getitem__(self, idx):
-        feature = self.features[idx]             # [C,H,W]
-        label = self.labels[idx]                 # [1,H,W] (or [C_reg,H,W])
-        cls_label = self.cls_labels[idx] if self.cls_labels is not None else None  # [H,W]
-        lwi = self.LWI[idx] if self.LWI is not None else None                     # [C2,H,W] or [1,H,W]
-
-        # Apply transform (random vertical flip)
-        if self.transform and torch.rand(1).item() < 0.5:
-            feature = self._flip_feature_chw(feature)
-            label = self._flip_label_chw(label)
-
-            if cls_label is not None:
-                cls_label = self._flip_hw(cls_label)
-
-            if lwi is not None:
-                # assumes LWI is CHW
-                lwi = self._flip_feature_chw(lwi)
-
-        sample = {"features": feature, "labels": label, "LWI": lwi}
-
-        if cls_label is not None:
-            # CrossEntropyLoss expects Long targets with class indices
-            sample["cls_labels"] = cls_label.long()
-
-        return sample
-
-
-# In[51]:
-
-
-#### Maria: New create dataset instances for training and testing
-flip_transform = T.RandomVerticalFlip(p=0.5)
-
-train_dataset = CustomDataset(
-    train_feats,
-    train_labels,
-    cls_labels = (train_labels_class if cfg["use_cls_labels"] else None),  # change handled by cfg
-    LWI = train_LWI,
-    transform = flip_transform  # random vertical flipping
-)
-
-valid_dataset = CustomDataset(
-    valid_feats,
-    valid_labels,
-    cls_labels = (valid_labels_class if cfg["use_cls_labels"] else None),  # change handled by cfg
-    LWI = valid_LWI,
-    transform = None  # no augmentation
-)
-
-
-# In[52]:
-
-
-# Create DataLoader instances
-train_loader = DataLoader(train_dataset,
-               batch_size=BATCH_SIZE, 
-               shuffle=True, 
-               drop_last=True
-)
-valid_loader= DataLoader(valid_dataset, 
-              batch_size=BATCH_SIZE, 
-              shuffle=False, 
-              drop_last=False           
-)
-
-
-# In[53]:
-
-
-for data in valid_loader:
-    print(data['features'].shape)
-    print(data['labels'].shape)
-    print(data['LWI'].shape)
-    break
-
-
-# In[54]:
-
-
-for data in train_loader:
-    print(data['features'].shape)
-    print(data['labels'].shape)
-    print(data['LWI'].shape)
-    break
+# class DoubleConv(nn.Module):
+#     """(conv => BN => ReLU) * 2"""
+#     def __init__(self, in_channels, out_channels, mid_channels=None):
+#         super().__init__()
+#         mid_channels = out_channels if mid_channels is None else mid_channels
+
+#         self.double_conv = nn.Sequential(
+#             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding="same"),
+#             nn.BatchNorm2d(mid_channels),
+#             nn.ReLU(inplace=True),
+
+#             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding="same"),
+#             nn.BatchNorm2d(out_channels),
+#             nn.ReLU(inplace=True),
+#         )
+
+#     def forward(self, x):
+#         return self.double_conv(x)
+
+
+# class Down(nn.Module):
+#     """Downscaling with maxpool (stride=2) then double conv"""
+#     def __init__(self, in_channels, out_channels):
+#         super().__init__()
+#         self.block = nn.Sequential(
+#             nn.MaxPool2d(kernel_size=2, stride=2), #### stride 2 update -- Maria
+#             DoubleConv(in_channels, out_channels),
+#         )
+
+#     def forward(self, x):
+#         return self.block(x)
+
+
+# class Up(nn.Module):
+#     """
+#     Upscaling then double conv.
+
+#     Explicitly parameterized by:
+#       - deep_in: channels coming from deeper layer
+#       - skip_in: channels from skip connection
+#       - out_channels: output channels after fusion
+#     """
+#     def __init__(self, deep_in, skip_in, out_channels, bilinear=True):
+#         super().__init__()
+#         self.bilinear = bilinear
+
+#         if bilinear:
+#             self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+#             up_out = deep_in  # channels unchanged
+#         else:
+#             # Typically halves channels on upsampling
+#             self.up = nn.ConvTranspose2d(deep_in, deep_in // 2, kernel_size=2, stride=2)
+#             up_out = deep_in // 2
+
+#         self.conv = DoubleConv(up_out + skip_in, out_channels)
+
+#     def forward(self, x_deep, x_skip):
+#         x_deep = self.up(x_deep)
+
+#         # Pad if needed (handles odd input sizes)
+#         diffY = x_skip.size(2) - x_deep.size(2)
+#         diffX = x_skip.size(3) - x_deep.size(3)
+#         x_deep = F.pad(
+#             x_deep,
+#             [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2],
+#         )
+
+#         x = torch.cat([x_skip, x_deep], dim=1)
+#         return self.conv(x)
+
+
+# class OutConv(nn.Module):
+#     def __init__(self, in_channels, out_channels):
+#         super().__init__()
+#         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+#     def forward(self, x):
+#         return self.conv(x)
+
+
+# # In[46]:
+
+
+# #### Maria: new multitask unet based on previous classic unet
+
+# class MultiTaskUNet(nn.Module):
+#     """
+#     U-Net (4 downs) with two dense heads:
+#       - Regression: [B, C_reg, H, W]
+#       - Classification logits: [B, 2, H, W]
+
+#     To get classic UNetRegression-like behavior:
+#       yhat = model(x, return_reg_only=True)   # returns Tensor [B, C_reg, H, W]
+
+#     Default behavior:
+#       out = model(x)  # returns dict {"regression": ..., "cls_logits": ...}
+#     """
+#     def __init__(
+#         self,
+#         n_channels: int,
+#         n_regression_out: int = 1,
+#         base_channels: int = 32,
+#         bilinear: bool = False,
+#         positive_regression: bool = True,
+#         n_classes: int = 2,   # keep 2 for your setup
+#     ):
+#         super().__init__()
+#         self.positive_regression = positive_regression
+#         self.bilinear = bilinear
+#         self.n_classes = n_classes
+
+#         c1 = base_channels
+#         c2 = base_channels * 2
+#         c3 = base_channels * 4
+#         c4 = base_channels * 8
+#         c5 = base_channels * 16
+
+#         # Match the same channel plan we used earlier:
+#         # If bilinear, reduce bottleneck for efficiency (common in U-Net variants)
+#         bottleneck = c5 // 2 if bilinear else c5
+
+#         # Encoder
+#         self.inc   = DoubleConv(n_channels, c1)
+#         self.down1 = Down(c1, c2)
+#         self.down2 = Down(c2, c3)
+#         self.down3 = Down(c3, c4)
+#         self.down4 = Down(c4, bottleneck)
+
+#         # Decoder (shared trunk)
+#         if bilinear:
+#             self.up1 = Up(bottleneck, c4, c4 // 2, bilinear=True)
+#             self.up2 = Up(c4 // 2, c3, c3 // 2, bilinear=True)
+#             self.up3 = Up(c3 // 2, c2, c2 // 2, bilinear=True)
+#             self.up4 = Up(c2 // 2, c1, c1,      bilinear=True)
+#             trunk_out_ch = c1
+#         else:
+#             self.up1 = Up(bottleneck, c4, c4, bilinear=False)
+#             self.up2 = Up(c4,        c3, c3, bilinear=False)
+#             self.up3 = Up(c3,        c2, c2, bilinear=False)
+#             self.up4 = Up(c2,        c1, c1, bilinear=False)
+#             trunk_out_ch = c1
+
+#         # Heads
+#         self.reg_head = OutConv(trunk_out_ch, n_regression_out)
+#         self.cls_head = OutConv(trunk_out_ch, n_classes)
+
+#     def forward(self, x, return_reg_only: bool = False):
+#         # Encoder
+#         x1 = self.inc(x)
+#         x2 = self.down1(x1)
+#         x3 = self.down2(x2)
+#         x4 = self.down3(x3)
+#         x5 = self.down4(x4)
+
+#         # Decoder trunk
+#         x = self.up1(x5, x4)
+#         x = self.up2(x,  x3)    #Notice what is being passed through 
+#         x = self.up3(x,  x2)
+#         x = self.up4(x,  x1)
+
+#         # Regression head
+#         reg_logits = self.reg_head(x)
+#         reg_out = F.softplus(reg_logits) if self.positive_regression else reg_logits
+
+#         if return_reg_only:    #if specified in Run_Mode I am guessing? 
+#             return reg_out
+
+#         # Classification head (logits)
+#         cls_logits = self.cls_head(x)
+
+#         return {"regression": reg_out, "cls_logits": cls_logits}
+
+
+# # In[48]:
+# net1 = MultiTaskUNet(
+#     n_channels=NUM_INPUT_CHANNELS,
+#     n_regression_out=1, # dont need to change
+#     base_channels=32, # could be something to decrease if overfitting or increase if underfitting
+#     bilinear=False,
+#     positive_regression=True, # keep true for positive flash prediction
+#     n_classes=2 # dont need to change
+#     ).to(device)
+
+
+# # In[49]:
+
+
+# # 1. The Standard Tweedie (for Volume & Totals)
+# class TweedieLoss(nn.Module):
+#     def __init__(self, p=1.5, reduction='none'): # reduction='none' is CRITICAL
+#         super().__init__()
+#         self.p = p
+#         self.reduction = reduction
+
+#     def forward(self, y_pred, y_true):
+#         p = self.p
+#         loss = (
+#             (torch.pow(y_true, 2 - p) / ((1 - p) * (2 - p)))
+#             - (y_true * torch.pow(y_pred, 1 - p)) / (1 - p)
+#             + (torch.pow(y_pred, 2 - p)) / (2 - p)
+#         )
+#         if self.reduction == 'mean': return loss.mean()
+#         elif self.reduction == 'sum': return loss.sum()
+#         else: return loss # Returns per-pixel loss map
+
+
+# # In[50]:
+
+
+# class CustomDataset(Dataset):
+#     def __init__(self, features, labels, cls_labels=None, LWI=None, transform=None):
+#         self.features = torch.as_tensor(features, dtype=torch.float32)
+#         self.labels = torch.as_tensor(labels, dtype=torch.float32)  # regression: e.g., [N,1,H,W]
+
+#         # cls_labels: expected [N,H,W] (class indices). Keep dtype as-is; we’ll cast in __getitem__.
+#         self.cls_labels = torch.as_tensor(cls_labels) if cls_labels is not None else None
+
+#         self.LWI = torch.as_tensor(LWI, dtype=torch.float32) if LWI is not None else None
+#         self.transform = transform
+
+#         if len(self.features) != len(self.labels):
+#             raise ValueError(f"features and labels length mismatch: {len(self.features)} vs {len(self.labels)}")
+#         if self.cls_labels is not None and len(self.cls_labels) != len(self.features):
+#             raise ValueError(f"cls_labels length mismatch: {len(self.cls_labels)} vs {len(self.features)}")
+#         if self.LWI is not None and len(self.LWI) != len(self.features):
+#             raise ValueError(f"LWI length mismatch: {len(self.LWI)} vs {len(self.features)}")
+
+#     def __len__(self):
+#         return len(self.features)
+
+#     @staticmethod
+#     def _flip_feature_chw(x):
+#         # x is [C,H,W]
+#         return torch.flip(x, dims=[1])
+
+#     @staticmethod
+#     def _flip_label_chw(x):
+#         # regression label is typically [1,H,W] (still CHW)
+#         return torch.flip(x, dims=[1])
+
+#     @staticmethod
+#     def _flip_hw(x):
+#         # cls_labels stored as [H,W]
+#         return torch.flip(x, dims=[0])
+
+#     def __getitem__(self, idx):
+#         feature = self.features[idx]             # [C,H,W]
+#         label = self.labels[idx]                 # [1,H,W] (or [C_reg,H,W])
+#         cls_label = self.cls_labels[idx] if self.cls_labels is not None else None  # [H,W]
+#         lwi = self.LWI[idx] if self.LWI is not None else None                     # [C2,H,W] or [1,H,W]
+
+#         # Apply transform (random vertical flip)
+#         if self.transform and torch.rand(1).item() < 0.5:
+#             feature = self._flip_feature_chw(feature)
+#             label = self._flip_label_chw(label)
+
+#             if cls_label is not None:
+#                 cls_label = self._flip_hw(cls_label)
+
+#             if lwi is not None:
+#                 # assumes LWI is CHW
+#                 lwi = self._flip_feature_chw(lwi)
+
+#         sample = {"features": feature, "labels": label, "LWI": lwi}
+
+#         if cls_label is not None:
+#             # CrossEntropyLoss expects Long targets with class indices
+#             sample["cls_labels"] = cls_label.long()
+
+#         return sample
+
+
+# # In[51]:
+
+
+# #### Maria: New create dataset instances for training and testing
+# flip_transform = T.RandomVerticalFlip(p=0.5)
+
+# train_dataset = CustomDataset(
+#     train_feats,
+#     train_labels,
+#     cls_labels = (train_labels_class if cfg["use_cls_labels"] else None),  # change handled by cfg
+#     LWI = train_LWI,
+#     transform = flip_transform  # random vertical flipping
+# )
+
+# valid_dataset = CustomDataset(
+#     valid_feats,
+#     valid_labels,
+#     cls_labels = (valid_labels_class if cfg["use_cls_labels"] else None),  # change handled by cfg
+#     LWI = valid_LWI,
+#     transform = None  # no augmentation
+# )
+
+
+# # In[52]:
+
+
+# # Create DataLoader instances
+# train_loader = DataLoader(train_dataset,
+#                batch_size=BATCH_SIZE, 
+#                shuffle=True, 
+#                drop_last=True
+# )
+# valid_loader= DataLoader(valid_dataset, 
+#               batch_size=BATCH_SIZE, 
+#               shuffle=False, 
+#               drop_last=False           
+# )
+
+
+# # In[53]:
+
+
+# for data in valid_loader:
+#     print(data['features'].shape)
+#     print(data['labels'].shape)
+#     print(data['LWI'].shape)
+#     break
+
+
+# # In[54]:
+
+# for data in train_loader:
+#     print(data['features'].shape)
+#     print(data['labels'].shape)
+#     print(data['LWI'].shape)
+#     break
 
 
 # In[34]:
 
-
 #data['cls_labels'].shape # looks good (should throw keyerror if regression only -- no MT)
-
 
 # In[55]:
 
 
 ### Maria: added this helper here
 
-def forward_model(model, x, return_reg_only: bool):
-    # Safest explicit: only pass the kwarg to MultiTaskUNet
-    if isinstance(model, MultiTaskUNet):
-        return model(x, return_reg_only=return_reg_only)
-    return model(x)
+# def forward_model(model, x, return_reg_only: bool):
+#     # Safest explicit: only pass the kwarg to MultiTaskUNet
+#     if isinstance(model, MultiTaskUNet):
+#         return model(x, return_reg_only=return_reg_only)
+#     return model(x)
 
 
 # In[33]:
 
 
-def train(
-    model,
-    dataloader,
-    optimizer,
-    reg_criterion,              # MUST be TweedieLoss(reduction='none')
-    device,
-    alpha=0.0,
-    gamma=0.0,
-    lambda_cls=1.0,
-    cls_criterion=None,         
-    cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
-    hurdle_train=False,         
-    active_class=1,
-    return_reg_only=False,
-    # --- CHANGED: We now just need the kernel size, not a separate criterion ---
-    pool_kernel_size=5          
-):
-    model.train()
-    running_total = 0.0
-    running_reg = 0.0
-    running_cls = 0.0
-    cls_steps = 0
+# def train(
+#     model,
+#     dataloader,
+#     optimizer,
+#     reg_criterion,              # MUST be TweedieLoss(reduction='none')
+#     device,
+#     alpha=0.0,
+#     gamma=0.0,
+#     lambda_cls=1.0,
+#     cls_criterion=None,         
+#     cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
+#     hurdle_train=False,         
+#     active_class=1,
+#     return_reg_only=False,
+#     # --- CHANGED: We now just need the kernel size, not a separate criterion ---
+#     pool_kernel_size=5          
+# ):
+#     model.train()
+#     running_total = 0.0
+#     running_reg = 0.0
+#     running_cls = 0.0
+#     cls_steps = 0
 
-    # --- DEFINE POOLER ---
-    # We define it here to ensure it uses the correct kernel size
-    pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
+#     # --- DEFINE POOLER ---
+#     # We define it here to ensure it uses the correct kernel size
+#     pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
 
-    if cls_criterion is None:
-        cls_criterion = nn.CrossEntropyLoss()
+#     if cls_criterion is None:
+#         cls_criterion = nn.CrossEntropyLoss()
 
-    eps = 1e-6
+#     eps = 1e-6
 
-    for batch in dataloader:
-        x = batch["features"].to(device).float()
-        y_reg = batch["labels"].to(device).float() 
+#     for batch in dataloader:
+#         x = batch["features"].to(device).float()
+#         y_reg = batch["labels"].to(device).float() 
 
-        out = model(x)
+#         out = model(x)
 
-        if isinstance(out, dict):
-            yhat_reg = out["regression"]
-            cls_logits = out.get("cls_logits", None)
-        else:
-            yhat_reg = out
-            cls_logits = None
+#         if isinstance(out, dict):
+#             yhat_reg = out["regression"]
+#             cls_logits = out.get("cls_logits", None)
+#         else:
+#             yhat_reg = out
+#             cls_logits = None
 
-        # ====================================================
-        # NEW LOGIC: FUZZY TWEEDIE
-        # ====================================================
+#         # ====================================================
+#         # NEW LOGIC: FUZZY TWEEDIE
+#         # ====================================================
 
-        # 1. POOL FIRST (The "Fuzzy" Step)
-        # Instead of pixel-vs-pixel, we compare neighborhood-vs-neighborhood
-        y_pred_pooled = pooler(yhat_reg)
-        y_true_pooled = pooler(y_reg)
+#         # 1. POOL FIRST (The "Fuzzy" Step)
+#         # Instead of pixel-vs-pixel, we compare neighborhood-vs-neighborhood
+#         y_pred_pooled = pooler(yhat_reg)
+#         y_true_pooled = pooler(y_reg)
 
-        # 2. CALCULATE WEIGHTS ON THE POOLED TARGETS
-        # We weight the loss based on the MAGNITUDE of the neighborhood peak.
-        mean_pooled_label = y_true_pooled.mean()
-        weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
+#         # 2. CALCULATE WEIGHTS ON THE POOLED TARGETS
+#         # We weight the loss based on the MAGNITUDE of the neighborhood peak.
+#         mean_pooled_label = y_true_pooled.mean()
+#         weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
 
-        # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
-        # This checks: "Did you predict the correct MAX intensity in this 5x5 box?"
-        per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
+#         # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
+#         # This checks: "Did you predict the correct MAX intensity in this 5x5 box?"
+#         per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
 
-        # 4. APPLY WEIGHTS
-        reg_weighted = weights_pooled * per_elem_loss
+#         # 4. APPLY WEIGHTS
+#         reg_weighted = weights_pooled * per_elem_loss
         
-        # ====================================================
+#         # ====================================================
 
-        # Classification Logic
-        cls_loss = None
-        cls_idx = None
-        if cls_logits is not None:
-             for k in cls_key_candidates:
-                if k in batch:
-                    cls_idx = batch[k].to(device)
-                    break
+#         # Classification Logic
+#         cls_loss = None
+#         cls_idx = None
+#         if cls_logits is not None:
+#              for k in cls_key_candidates:
+#                 if k in batch:
+#                     cls_idx = batch[k].to(device)
+#                     break
         
-        if cls_logits is not None and cls_idx is not None:
-            if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
-                cls_idx = cls_idx.squeeze(1)
-            cls_idx = cls_idx.long()
-            cls_loss = cls_criterion(cls_logits, cls_idx)
+#         if cls_logits is not None and cls_idx is not None:
+#             if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
+#                 cls_idx = cls_idx.squeeze(1)
+#             cls_idx = cls_idx.long()
+#             cls_loss = cls_criterion(cls_logits, cls_idx)
 
-        # Aggregate Regression Loss
-        if hurdle_train and (cls_idx is not None):
-            # Pool the mask too! A neighborhood is active if ANY pixel is active.
-            gt_mask = (cls_idx == active_class).unsqueeze(1).float()
-            gt_mask_pooled = pooler(gt_mask)
-            gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
+#         # Aggregate Regression Loss
+#         if hurdle_train and (cls_idx is not None):
+#             # Pool the mask too! A neighborhood is active if ANY pixel is active.
+#             gt_mask = (cls_idx == active_class).unsqueeze(1).float()
+#             gt_mask_pooled = pooler(gt_mask)
+#             gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
 
-            reg_loss_val = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
-        else:
-            reg_loss_val = reg_weighted.mean()
+#             reg_loss_val = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
+#         else:
+#             reg_loss_val = reg_weighted.mean()
 
-        # Total Loss (Note: No sharp_loss added here, it's baked into reg_loss_val)
-        total_loss = reg_loss_val + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
+#         # Total Loss (Note: No sharp_loss added here, it's baked into reg_loss_val)
+#         total_loss = reg_loss_val + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
 
-        optimizer.zero_grad()
-        total_loss.backward()
-        optimizer.step()
+#         optimizer.zero_grad()
+#         total_loss.backward()
+#         optimizer.step()
 
-        running_total += total_loss.item()
-        running_reg += reg_loss_val.item()
+#         running_total += total_loss.item()
+#         running_reg += reg_loss_val.item()
 
-        if cls_loss is not None:
-            running_cls += cls_loss.item()
-            cls_steps += 1
+#         if cls_loss is not None:
+#             running_cls += cls_loss.item()
+#             cls_steps += 1
 
-    total_avg = running_total / len(dataloader)
-    reg_avg = running_reg / len(dataloader)
-    cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
+#     total_avg = running_total / len(dataloader)
+#     reg_avg = running_reg / len(dataloader)
+#     cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
 
-    # Returns 3 values (Total, Reg, Cls)
-    return total_avg, reg_avg, cls_avg
+#     # Returns 3 values (Total, Reg, Cls)
+#     return total_avg, reg_avg, cls_avg
 
 
 # In[57]:
 
 
-def validate(
-    model,
-    dataloader,
-    device,
-    reg_criterion,              # MUST be TweedieLoss(reduction='none')
-    alpha=0.0,
-    gamma=0.0,
-    lambda_cls=1.0,
-    cls_criterion=None,
-    cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
-    hurdle_train=False,
-    active_class=1,
-    return_reg_only=False,
-    # --- CHANGED: Just need kernel size now ---
-    pool_kernel_size=5
-):
-    model.eval()
-    running_total = 0.0
-    running_reg = 0.0
-    running_cls = 0.0
-    cls_steps = 0
+# def validate(
+#     model,
+#     dataloader,
+#     device,
+#     reg_criterion,              # MUST be TweedieLoss(reduction='none')
+#     alpha=0.0,
+#     gamma=0.0,
+#     lambda_cls=1.0,
+#     cls_criterion=None,
+#     cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
+#     hurdle_train=False,
+#     active_class=1,
+#     return_reg_only=False,
+#     # --- CHANGED: Just need kernel size now ---
+#     pool_kernel_size=5
+# ):
+#     model.eval()
+#     running_total = 0.0
+#     running_reg = 0.0
+#     running_cls = 0.0
+#     cls_steps = 0
 
-    # --- DEFINE POOLER ---
-    pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
+#     # --- DEFINE POOLER ---
+#     pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
 
-    if cls_criterion is None:
-        cls_criterion = nn.CrossEntropyLoss()
+#     if cls_criterion is None:
+#         cls_criterion = nn.CrossEntropyLoss()
 
-    eps = 1e-6
+#     eps = 1e-6
 
-    with torch.no_grad():
-        for batch in dataloader:
-            x = batch["features"].to(device).float()
-            y_reg = batch["labels"].to(device).float()
+#     with torch.no_grad():
+#         for batch in dataloader:
+#             x = batch["features"].to(device).float()
+#             y_reg = batch["labels"].to(device).float()
 
-            out = model(x)
+#             out = model(x)
 
-            if isinstance(out, dict):
-                yhat_reg = out["regression"]
-                cls_logits = out.get("cls_logits", None)
-            else:
-                yhat_reg = out
-                cls_logits = None
+#             if isinstance(out, dict):
+#                 yhat_reg = out["regression"]
+#                 cls_logits = out.get("cls_logits", None)
+#             else:
+#                 yhat_reg = out
+#                 cls_logits = None
 
-            # ====================================================
-            # NEW LOGIC: FUZZY TWEEDIE (Validation)
-            # ====================================================
+#             # ====================================================
+#             # NEW LOGIC: FUZZY TWEEDIE (Validation)
+#             # ====================================================
 
-            # 1. POOL FIRST
-            y_pred_pooled = pooler(yhat_reg)
-            y_true_pooled = pooler(y_reg)
+#             # 1. POOL FIRST
+#             y_pred_pooled = pooler(yhat_reg)
+#             y_true_pooled = pooler(y_reg)
 
-            # 2. CALCULATE WEIGHTS ON POOLED TARGETS
-            mean_pooled_label = y_true_pooled.mean()
-            weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
+#             # 2. CALCULATE WEIGHTS ON POOLED TARGETS
+#             mean_pooled_label = y_true_pooled.mean()
+#             weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
 
-            # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
-            per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
+#             # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
+#             per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
 
-            # 4. APPLY WEIGHTS
-            reg_weighted = weights_pooled * per_elem_loss
+#             # 4. APPLY WEIGHTS
+#             reg_weighted = weights_pooled * per_elem_loss
 
-            # ====================================================
+#             # ====================================================
 
-            # Classification Logic
-            cls_loss = None
-            cls_idx = None
+#             # Classification Logic
+#             cls_loss = None
+#             cls_idx = None
 
-            if cls_logits is not None:
-                for k in cls_key_candidates:
-                    if k in batch:
-                        cls_idx = batch[k].to(device)
-                        break
+#             if cls_logits is not None:
+#                 for k in cls_key_candidates:
+#                     if k in batch:
+#                         cls_idx = batch[k].to(device)
+#                         break
 
-            if cls_logits is not None and cls_idx is not None:
-                if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
-                    cls_idx = cls_idx.squeeze(1)
-                cls_idx = cls_idx.long()
-                cls_loss = cls_criterion(cls_logits, cls_idx)
+#             if cls_logits is not None and cls_idx is not None:
+#                 if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
+#                     cls_idx = cls_idx.squeeze(1)
+#                 cls_idx = cls_idx.long()
+#                 cls_loss = cls_criterion(cls_logits, cls_idx)
 
-            # Aggregate Regression Loss
-            if hurdle_train and (cls_idx is not None):
-                # Pool mask to match dimensions
-                gt_mask = (cls_idx == active_class).unsqueeze(1).float()
-                gt_mask_pooled = pooler(gt_mask)
-                gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
+#             # Aggregate Regression Loss
+#             if hurdle_train and (cls_idx is not None):
+#                 # Pool mask to match dimensions
+#                 gt_mask = (cls_idx == active_class).unsqueeze(1).float()
+#                 gt_mask_pooled = pooler(gt_mask)
+#                 gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
 
-                reg_loss_val = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
-            else:
-                reg_loss_val = reg_weighted.mean()
+#                 reg_loss_val = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
+#             else:
+#                 reg_loss_val = reg_weighted.mean()
 
-            # Total Loss
-            total_loss = reg_loss_val + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
+#             # Total Loss
+#             total_loss = reg_loss_val + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
 
-            running_total += total_loss.item()
-            running_reg += reg_loss_val.item()
+#             running_total += total_loss.item()
+#             running_reg += reg_loss_val.item()
             
-            if cls_loss is not None:
-                running_cls += cls_loss.item()
-                cls_steps += 1
+#             if cls_loss is not None:
+#                 running_cls += cls_loss.item()
+#                 cls_steps += 1
 
-    total_avg = running_total / len(dataloader)
-    reg_avg = running_reg / len(dataloader)
-    cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
+#     total_avg = running_total / len(dataloader)
+#     reg_avg = running_reg / len(dataloader)
+#     cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
 
-    # Returns 3 values (Total, Reg, Cls) - Sharpness is implicit!
-    return total_avg, reg_avg, cls_avg
-
-
-# In[58]:
+#     # Returns 3 values (Total, Reg, Cls) - Sharpness is implicit!
+#     return total_avg, reg_avg, cls_avg
 
 
-# maria: new helper for class and reg metrics
+# # In[58]:
 
-def compute_val_metrics_hurdle(
-    model,
-    dataloader,
-    device,
-    threshold=0.5,
-    active_class=1,
-    cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
-    return_reg_only=False
-):
-    model.eval()
 
-    mse = MeanSquaredError().to(device)
-    r2 = R2Score().to(device)
+# # maria: new helper for class and reg metrics
 
-    mse_g = MeanSquaredError().to(device)
-    r2_g = R2Score().to(device)
+# def compute_val_metrics_hurdle(
+#     model,
+#     dataloader,
+#     device,
+#     threshold=0.5,
+#     active_class=1,
+#     cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
+#     return_reg_only=False
+# ):
+#     model.eval()
 
-    num_classes = 2
-    confmat = torch.zeros((num_classes, num_classes), device=device, dtype=torch.int64)
-    correct_pixels = 0
-    total_pixels = 0
-    did_cls = False
+#     mse = MeanSquaredError().to(device)
+#     r2 = R2Score().to(device)
 
-    with torch.no_grad():
-        for batch in dataloader:
-            x = batch["features"].to(device)
-            y_reg = batch["labels"].to(device)
+#     mse_g = MeanSquaredError().to(device)
+#     r2_g = R2Score().to(device)
 
-            out = forward_model(model, x, return_reg_only)
+#     num_classes = 2
+#     confmat = torch.zeros((num_classes, num_classes), device=device, dtype=torch.int64)
+#     correct_pixels = 0
+#     total_pixels = 0
+#     did_cls = False
+
+#     with torch.no_grad():
+#         for batch in dataloader:
+#             x = batch["features"].to(device)
+#             y_reg = batch["labels"].to(device)
+
+#             out = forward_model(model, x, return_reg_only)
             
-            if isinstance(out, dict):
-                yhat_reg = out["regression"]
-                cls_logits = out.get("cls_logits", None)
-            else:
-                yhat_reg = out
-                cls_logits = None
+#             if isinstance(out, dict):
+#                 yhat_reg = out["regression"]
+#                 cls_logits = out.get("cls_logits", None)
+#             else:
+#                 yhat_reg = out
+#                 cls_logits = None
 
-            # regression metrics (ungated)
-            yhat_flat = yhat_reg.view(yhat_reg.size(0), -1)
-            y_flat = y_reg.view(y_reg.size(0), -1)
-            mse.update(yhat_flat, y_flat)
-            r2.update(yhat_flat, y_flat)
+#             # regression metrics (ungated)
+#             yhat_flat = yhat_reg.view(yhat_reg.size(0), -1)
+#             y_flat = y_reg.view(y_reg.size(0), -1)
+#             mse.update(yhat_flat, y_flat)
+#             r2.update(yhat_flat, y_flat)
 
-            # classification + gated regression metrics (only if cls_logits and labels exist)
-            if cls_logits is not None:
-                cls_idx = None
-                for k in cls_key_candidates:
-                    if k in batch:
-                        cls_idx = batch[k].to(device)
-                        break
+#             # classification + gated regression metrics (only if cls_logits and labels exist)
+#             if cls_logits is not None:
+#                 cls_idx = None
+#                 for k in cls_key_candidates:
+#                     if k in batch:
+#                         cls_idx = batch[k].to(device)
+#                         break
 
-                if cls_idx is not None:
-                    did_cls = True
-                    if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
-                        cls_idx = cls_idx.squeeze(1)
-                    cls_idx = cls_idx.long()  # 0/1
+#                 if cls_idx is not None:
+#                     did_cls = True
+#                     if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
+#                         cls_idx = cls_idx.squeeze(1)
+#                     cls_idx = cls_idx.long()  # 0/1
 
-                    preds = cls_logits.argmax(dim=1)  # [B,H,W]
-                    correct_pixels += (preds == cls_idx).sum().item()
-                    total_pixels += cls_idx.numel()
-                    update_confusion_matrix(confmat, preds, cls_idx, num_classes=num_classes)
+#                     preds = cls_logits.argmax(dim=1)  # [B,H,W]
+#                     correct_pixels += (preds == cls_idx).sum().item()
+#                     total_pixels += cls_idx.numel()
+#                     update_confusion_matrix(confmat, preds, cls_idx, num_classes=num_classes)
 
-                    # gated regression (predicted mask)
-                    p_active = torch.softmax(cls_logits, dim=1)[:, active_class:active_class+1, :, :]  # [B,1,H,W]
-                    pred_mask = (p_active >= threshold).float()
-                    yhat_g = yhat_reg * pred_mask
+#                     # gated regression (predicted mask)
+#                     p_active = torch.softmax(cls_logits, dim=1)[:, active_class:active_class+1, :, :]  # [B,1,H,W]
+#                     pred_mask = (p_active >= threshold).float()
+#                     yhat_g = yhat_reg * pred_mask
 
-                    yhat_g_flat = yhat_g.view(yhat_g.size(0), -1)
-                    mse_g.update(yhat_g_flat, y_flat)
-                    r2_g.update(yhat_g_flat, y_flat)
+#                     yhat_g_flat = yhat_g.view(yhat_g.size(0), -1)
+#                     mse_g.update(yhat_g_flat, y_flat)
+#                     r2_g.update(yhat_g_flat, y_flat)
 
-    rmse = torch.sqrt(mse.compute()).item()
-    r2_val = r2.compute().item()
+#     rmse = torch.sqrt(mse.compute()).item()
+#     r2_val = r2.compute().item()
 
-    if did_cls and total_pixels > 0:
-        pixel_acc = correct_pixels / total_pixels
+#     if did_cls and total_pixels > 0:
+#         pixel_acc = correct_pixels / total_pixels
 
-        tp = torch.diag(confmat).float()
-        fp = confmat.sum(dim=0).float() - tp
-        fn = confmat.sum(dim=1).float() - tp
-        denom = tp + fp + fn
-        iou = tp / torch.clamp(denom, min=1.0)
+#         tp = torch.diag(confmat).float()
+#         fp = confmat.sum(dim=0).float() - tp
+#         fn = confmat.sum(dim=1).float() - tp
+#         denom = tp + fp + fn
+#         iou = tp / torch.clamp(denom, min=1.0)
 
-        mean_iou = iou.mean().item()
-        iou_bg = iou[0].item()
-        iou_fg = iou[1].item()
+#         mean_iou = iou.mean().item()
+#         iou_bg = iou[0].item()
+#         iou_fg = iou[1].item()
 
-        rmse_gated = torch.sqrt(mse_g.compute()).item()
-        r2_gated = r2_g.compute().item()
-    else:
-        pixel_acc = mean_iou = iou_bg = iou_fg = None
-        rmse_gated = r2_gated = None
+#         rmse_gated = torch.sqrt(mse_g.compute()).item()
+#         r2_gated = r2_g.compute().item()
+#     else:
+#         pixel_acc = mean_iou = iou_bg = iou_fg = None
+#         rmse_gated = r2_gated = None
 
-    return {
-        "rmse": rmse,
-        "r2": r2_val,
-        "rmse_gated": rmse_gated,
-        "r2_gated": r2_gated,
-        "pixel_acc": pixel_acc,
-        "mean_iou": mean_iou,
-        "iou_bg": iou_bg,
-        "iou_fg": iou_fg,
-    }
+#     return {
+#         "rmse": rmse,
+#         "r2": r2_val,
+#         "rmse_gated": rmse_gated,
+#         "r2_gated": r2_gated,
+#         "pixel_acc": pixel_acc,
+#         "mean_iou": mean_iou,
+#         "iou_bg": iou_bg,
+#         "iou_fg": iou_fg,
+#     }
 
 
 # In[59]:
 
 
-for batch in train_loader:
-    print(batch.keys())  # Show available keys
-    break
+# for batch in train_loader:
+#     print(batch.keys())  # Show available keys
+#     break
 
 
-# In[60]:
+# # In[60]:
 
 
-for batch in train_loader:
-    inputs = batch["features"]  # Use the 'features' key for inputs
-    targets = batch["labels"]   # Use the 'labels' key for targets
-    LWI = batch['LWI']
-    print(inputs.dtype, targets.dtype, LWI.dtype)  # Check their data types
-    break
+# for batch in train_loader:
+#     inputs = batch["features"]  # Use the 'features' key for inputs
+#     targets = batch["labels"]   # Use the 'labels' key for targets
+#     LWI = batch['LWI']
+#     print(inputs.dtype, targets.dtype, LWI.dtype)  # Check their data types
+#     break
 
 
-# In[61]:
+# # In[61]:
 
 
-for param in net1.parameters():
-    print(param.dtype)
-    break
+# for param in net1.parameters():
+#     print(param.dtype)
+#     break
 
 
 # In[62]:
 
 
-# 1. The Optimizer (Unchanged)
-optimizer = optim.Adam(net1.parameters(), lr=LEARNING_RATE, amsgrad=False)
+# # 1. The Optimizer (Unchanged)
+# optimizer = optim.Adam(net1.parameters(), lr=LEARNING_RATE, amsgrad=False)
 
-# 2. Tweedie Loss (Unchanged)
-# Keep reduction='none' so we can apply weights to the pooled map
-reg_criterion = TweedieLoss(p=1.1, reduction='none')
+# # 2. Tweedie Loss (Unchanged)
+# # Keep reduction='none' so we can apply weights to the pooled map
+# reg_criterion = TweedieLoss(p=1.1, reduction='none')
 
-# ADD: Just define the kernel size variable you want to use
-pool_kernel_size = 3
-
-
-# In[40]:
+# # ADD: Just define the kernel size variable you want to use
+# pool_kernel_size = 3
 
 
-from torchmetrics import MeanSquaredError, R2Score
+# # In[40]:
 
-# Define this outside the loop
-pool_kernel_size = 3
 
-epoch_metrics = []
+# from torchmetrics import MeanSquaredError, R2Score
 
-for epoch in range(NUM_EPOCHS):
+# # Define this outside the loop
+# pool_kernel_size = 3
 
-    # --- train ---
-    # Back to 3 values (Total, Reg, Cls)
-    t_total, t_reg, t_cls = train(       
-        net1, train_loader, optimizer, 
-        reg_criterion=reg_criterion,          # Must be TweedieLoss(reduction='none')
-        device=device,
-        alpha=alpha, gamma=gamma,
-        lambda_cls=cfg["lambda_cls"],
-        cls_criterion=cfg["cls_criterion"],
-        cls_key_candidates=cfg["cls_key_candidates"],
-        hurdle_train=cfg["hurdle_train"],
-        active_class=cfg["active_class"],
-        return_reg_only=cfg["return_reg_only"],
-        # New Argument (Replaces sharpness_criterion)
-        pool_kernel_size=pool_kernel_size     # <--- PASS 5 HERE
-    )
+# epoch_metrics = []
+
+# for epoch in range(NUM_EPOCHS):
+
+#     # --- train ---
+#     # Back to 3 values (Total, Reg, Cls)
+#     t_total, t_reg, t_cls = train(       
+#         net1, train_loader, optimizer, 
+#         reg_criterion=reg_criterion,          # Must be TweedieLoss(reduction='none')
+#         device=device,
+#         alpha=alpha, gamma=gamma,
+#         lambda_cls=cfg["lambda_cls"],
+#         cls_criterion=cfg["cls_criterion"],
+#         cls_key_candidates=cfg["cls_key_candidates"],
+#         hurdle_train=cfg["hurdle_train"],
+#         active_class=cfg["active_class"],
+#         return_reg_only=cfg["return_reg_only"],
+#         # New Argument (Replaces sharpness_criterion)
+#         pool_kernel_size=pool_kernel_size     # <--- PASS 5 HERE
+#     )
     
-    # --- validate ---
-    # Back to 3 values
-    v_total, v_reg, v_cls = validate(    
-        net1, valid_loader, device, 
-        reg_criterion=reg_criterion,          
-        alpha=alpha, gamma=gamma,
-        lambda_cls=cfg["lambda_cls"],
-        cls_criterion=cfg["cls_criterion"],
-        cls_key_candidates=cfg["cls_key_candidates"],
-        hurdle_train=cfg["hurdle_train"],
-        active_class=cfg["active_class"],
-        return_reg_only=cfg["return_reg_only"],
-        # New Argument
-        pool_kernel_size=pool_kernel_size     # <--- PASS 5 HERE
-    )
+#     # --- validate ---
+#     # Back to 3 values
+#     v_total, v_reg, v_cls = validate(    
+#         net1, valid_loader, device, 
+#         reg_criterion=reg_criterion,          
+#         alpha=alpha, gamma=gamma,
+#         lambda_cls=cfg["lambda_cls"],
+#         cls_criterion=cfg["cls_criterion"],
+#         cls_key_candidates=cfg["cls_key_candidates"],
+#         hurdle_train=cfg["hurdle_train"],
+#         active_class=cfg["active_class"],
+#         return_reg_only=cfg["return_reg_only"],
+#         # New Argument
+#         pool_kernel_size=pool_kernel_size     # <--- PASS 5 HERE
+#     )
 
-    # --- validation metrics ---
-    metrics = compute_val_metrics_hurdle(
-        net1, valid_loader, device,
-        threshold=cfg["hurdle_thresh"] if cfg["hurdle_thresh"] is not None else 0.5,
-        active_class=cfg["active_class"],
-        return_reg_only=cfg["return_reg_only"],
-    )
+#     # --- validation metrics ---
+#     metrics = compute_val_metrics_hurdle(
+#         net1, valid_loader, device,
+#         threshold=cfg["hurdle_thresh"] if cfg["hurdle_thresh"] is not None else 0.5,
+#         active_class=cfg["active_class"],
+#         return_reg_only=cfg["return_reg_only"],
+#     )
 
-    # Build log line (Removed separate Sharpness metric)
-    msg = (
-        f"Epoch {epoch+1}/{NUM_EPOCHS} | "
-        f"Train: {t_total:.4f} (Reg:{t_reg:.4f}) | " 
-        f"Val: {v_total:.4f} (Reg:{v_reg:.4f}) | "   
-        f"RMSE: {metrics['rmse']:.4f}"
-    )
+#     # Build log line (Removed separate Sharpness metric)
+#     msg = (
+#         f"Epoch {epoch+1}/{NUM_EPOCHS} | "
+#         f"Train: {t_total:.4f} (Reg:{t_reg:.4f}) | " 
+#         f"Val: {v_total:.4f} (Reg:{v_reg:.4f}) | "   
+#         f"RMSE: {metrics['rmse']:.4f}"
+#     )
 
-    if metrics["pixel_acc"] is not None:
-        msg += (
-            f" | PixAcc: {metrics['pixel_acc']:.4f}"
-            f" | mIoU: {metrics['mean_iou']:.4f}"
-        )
+#     if metrics["pixel_acc"] is not None:
+#         msg += (
+#             f" | PixAcc: {metrics['pixel_acc']:.4f}"
+#             f" | mIoU: {metrics['mean_iou']:.4f}"
+#         )
 
-    print(msg)
+#     print(msg)
 
-    # Store results (Removed separate Sharpness metric)
-    row = {
-        "epoch": epoch + 1,
+#     # Store results (Removed separate Sharpness metric)
+#     row = {
+#         "epoch": epoch + 1,
 
-        "train_total_loss": float(t_total),
-        "train_reg_loss": float(t_reg),
-        "train_cls_loss": (float(t_cls) if t_cls is not None else None),
+#         "train_total_loss": float(t_total),
+#         "train_reg_loss": float(t_reg),
+#         "train_cls_loss": (float(t_cls) if t_cls is not None else None),
 
-        "val_total_loss": float(v_total),
-        "val_reg_loss": float(v_reg),
-        "val_cls_loss": (float(v_cls) if v_cls is not None else None),
+#         "val_total_loss": float(v_total),
+#         "val_reg_loss": float(v_reg),
+#         "val_cls_loss": (float(v_cls) if v_cls is not None else None),
 
-        "rmse": float(metrics["rmse"]),
-        "r2": float(metrics["r2"]),
+#         "rmse": float(metrics["rmse"]),
+#         "r2": float(metrics["r2"]),
 
-        "pixel_acc": metrics["pixel_acc"],
-        "mean_iou": metrics["mean_iou"],
-        "iou_bg": metrics["iou_bg"],
-        "iou_fg": metrics["iou_fg"],
-    }
+#         "pixel_acc": metrics["pixel_acc"],
+#         "mean_iou": metrics["mean_iou"],
+#         "iou_bg": metrics["iou_bg"],
+#         "iou_fg": metrics["iou_fg"],
+#     }
 
-    if cfg["hurdle_thresh"] is not None:
-        row["rmse_gated"] = metrics["rmse_gated"]
-        row["r2_gated"] = metrics["r2_gated"]
-        row["hurdle_thresh"] = cfg["hurdle_thresh"]
+#     if cfg["hurdle_thresh"] is not None:
+#         row["rmse_gated"] = metrics["rmse_gated"]
+#         row["r2_gated"] = metrics["r2_gated"]
+#         row["hurdle_thresh"] = cfg["hurdle_thresh"]
 
-    row["hurdle_train"] = cfg["hurdle_train"]
-    epoch_metrics.append(row)
+#     row["hurdle_train"] = cfg["hurdle_train"]
+#     epoch_metrics.append(row)
 
-df = pd.DataFrame(epoch_metrics)
-# df.to_csv("training_metrics_NEW_101.csv", index=False)
-
-
-# Save weights and architecture
-save_path = "Regression_NOTotPrecip_new.pth"
-torch.save(net1.state_dict(), save_path)
-print(f"Model saved to {save_path}")
+# df = pd.DataFrame(epoch_metrics)
+# # df.to_csv("training_metrics_NEW_101.csv", index=False)
 
 
-# In[64]:
+# # Save weights and architecture
+# save_path = "Regression_NOTotPrecip_new.pth"
+# torch.save(net1.state_dict(), save_path)
+# print(f"Model saved to {save_path}")
 
 
-def test(
-    model,
-    dataloader,
-    device,
-    reg_criterion,              # MUST be TweedieLoss(reduction='none')
-    alpha=0.0,
-    gamma=0.0,
-    lambda_cls=1.0,
-    cls_criterion=None,
-    cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
-    hurdle_train=False,         # mask regression loss on GT active pixels
-    threshold=0.5,              # gate predictions by predicted P(active)
-    active_class=1,
-    return_reg_only=False,
-    # --- CHANGED: Added pool kernel size ---
-    pool_kernel_size=5          
-):
-    model.eval()
+# # In[64]:
 
-    # --- DEFINE POOLER ---
-    # We define it here to ensure it uses the correct kernel size
-    pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
 
-    if cls_criterion is None:
-        cls_criterion = nn.CrossEntropyLoss()
+# def test(
+#     model,
+#     dataloader,
+#     device,
+#     reg_criterion,              # MUST be TweedieLoss(reduction='none')
+#     alpha=0.0,
+#     gamma=0.0,
+#     lambda_cls=1.0,
+#     cls_criterion=None,
+#     cls_key_candidates=("cls_labels", "class_labels", "seg_labels", "cls_label"),
+#     hurdle_train=False,         # mask regression loss on GT active pixels
+#     threshold=0.5,              # gate predictions by predicted P(active)
+#     active_class=1,
+#     return_reg_only=False,
+#     # --- CHANGED: Added pool kernel size ---
+#     pool_kernel_size=5          
+# ):
+#     model.eval()
 
-    eps = 1e-6
+#     # --- DEFINE POOLER ---
+#     # We define it here to ensure it uses the correct kernel size
+#     pooler = nn.MaxPool2d(kernel_size=pool_kernel_size, stride=1, padding=pool_kernel_size//2).to(device)
 
-    running_total = 0.0
-    running_reg = 0.0
-    running_cls = 0.0
-    cls_steps = 0
+#     if cls_criterion is None:
+#         cls_criterion = nn.CrossEntropyLoss()
 
-    # metrics
-    mse = MeanSquaredError().to(device)
-    r2 = R2Score().to(device)
-    mse_g = MeanSquaredError().to(device)
-    r2_g = R2Score().to(device)
+#     eps = 1e-6
 
-    num_classes = 2
-    confmat = torch.zeros((num_classes, num_classes), device=device, dtype=torch.int64)
-    correct_pixels = 0
-    total_pixels = 0
-    did_cls = False
+#     running_total = 0.0
+#     running_reg = 0.0
+#     running_cls = 0.0
+#     cls_steps = 0
 
-    with torch.no_grad():
-        for batch in dataloader:
-            x = batch["features"].to(device).float()
-            y_reg = batch["labels"].to(device).float()
+#     # metrics
+#     mse = MeanSquaredError().to(device)
+#     r2 = R2Score().to(device)
+#     mse_g = MeanSquaredError().to(device)
+#     r2_g = R2Score().to(device)
 
-            # CORRECTED LINE
-            out = forward_model(model, x, return_reg_only)
+#     num_classes = 2
+#     confmat = torch.zeros((num_classes, num_classes), device=device, dtype=torch.int64)
+#     correct_pixels = 0
+#     total_pixels = 0
+#     did_cls = False
 
-            if isinstance(out, dict):
-                yhat_reg = out["regression"]
-                cls_logits = out.get("cls_logits", None)
-            else:
-                yhat_reg = out
-                cls_logits = None
+#     with torch.no_grad():
+#         for batch in dataloader:
+#             x = batch["features"].to(device).float()
+#             y_reg = batch["labels"].to(device).float()
 
-            # ====================================================
-            # NEW LOGIC: FUZZY TWEEDIE LOSS (Option C)
-            # ====================================================
+#             # CORRECTED LINE
+#             out = forward_model(model, x, return_reg_only)
+
+#             if isinstance(out, dict):
+#                 yhat_reg = out["regression"]
+#                 cls_logits = out.get("cls_logits", None)
+#             else:
+#                 yhat_reg = out
+#                 cls_logits = None
+
+#             # ====================================================
+#             # NEW LOGIC: FUZZY TWEEDIE LOSS (Option C)
+#             # ====================================================
             
-            # 1. POOL FIRST
-            y_pred_pooled = pooler(yhat_reg)
-            y_true_pooled = pooler(y_reg)
+#             # 1. POOL FIRST
+#             y_pred_pooled = pooler(yhat_reg)
+#             y_true_pooled = pooler(y_reg)
 
-            # 2. CALCULATE WEIGHTS ON POOLED TARGETS
-            mean_pooled_label = y_true_pooled.mean()
-            weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
+#             # 2. CALCULATE WEIGHTS ON POOLED TARGETS
+#             mean_pooled_label = y_true_pooled.mean()
+#             weights_pooled = 1 + alpha * ((y_true_pooled + eps) / (mean_pooled_label + eps)) ** gamma
 
-            # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
-            per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
-            reg_weighted = weights_pooled * per_elem_loss
+#             # 3. CALCULATE TWEEDIE LOSS ON POOLED MAPS
+#             per_elem_loss = reg_criterion(y_pred_pooled, y_true_pooled)
+#             reg_weighted = weights_pooled * per_elem_loss
 
-            # ====================================================
+#             # ====================================================
 
-            cls_loss = None
-            cls_idx = None
+#             cls_loss = None
+#             cls_idx = None
 
-            if cls_logits is not None:
-                for k in cls_key_candidates:
-                    if k in batch:
-                        cls_idx = batch[k].to(device)
-                        break
+#             if cls_logits is not None:
+#                 for k in cls_key_candidates:
+#                     if k in batch:
+#                         cls_idx = batch[k].to(device)
+#                         break
 
-            if cls_logits is not None and cls_idx is not None:
-                if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
-                    cls_idx = cls_idx.squeeze(1)
-                cls_idx = cls_idx.long()
-                cls_loss = cls_criterion(cls_logits, cls_idx)
+#             if cls_logits is not None and cls_idx is not None:
+#                 if cls_idx.ndim == 4 and cls_idx.size(1) == 1:
+#                     cls_idx = cls_idx.squeeze(1)
+#                 cls_idx = cls_idx.long()
+#                 cls_loss = cls_criterion(cls_logits, cls_idx)
 
-            if hurdle_train and (cls_idx is not None):
-                # Pool the mask too for the loss calculation
-                gt_mask = (cls_idx == active_class).unsqueeze(1).float()
-                gt_mask_pooled = pooler(gt_mask)
-                gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
+#             if hurdle_train and (cls_idx is not None):
+#                 # Pool the mask too for the loss calculation
+#                 gt_mask = (cls_idx == active_class).unsqueeze(1).float()
+#                 gt_mask_pooled = pooler(gt_mask)
+#                 gt_mask_pooled = (gt_mask_pooled > 0.01).float() 
                 
-                reg_loss = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
-            else:
-                reg_loss = reg_weighted.mean()
+#                 reg_loss = (reg_weighted * gt_mask_pooled).sum() / (gt_mask_pooled.sum() + eps)
+#             else:
+#                 reg_loss = reg_weighted.mean()
 
-            total_loss = reg_loss + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
+#             total_loss = reg_loss + (lambda_cls * cls_loss if cls_loss is not None else 0.0)
 
-            running_total += total_loss.item()
-            running_reg += reg_loss.item()
-            if cls_loss is not None:
-                running_cls += cls_loss.item()
-                cls_steps += 1
+#             running_total += total_loss.item()
+#             running_reg += reg_loss.item()
+#             if cls_loss is not None:
+#                 running_cls += cls_loss.item()
+#                 cls_steps += 1
 
-            # --- METRICS (Keep these Pixel-Wise/Unpooled) ---
-            # We want to measure how good the raw prediction is against the raw ground truth
-            yhat_flat = yhat_reg.view(yhat_reg.size(0), -1)
-            y_flat = y_reg.view(y_reg.size(0), -1)
-            mse.update(yhat_flat, y_flat)
-            r2.update(yhat_flat, y_flat)
+#             # --- METRICS (Keep these Pixel-Wise/Unpooled) ---
+#             # We want to measure how good the raw prediction is against the raw ground truth
+#             yhat_flat = yhat_reg.view(yhat_reg.size(0), -1)
+#             y_flat = y_reg.view(y_reg.size(0), -1)
+#             mse.update(yhat_flat, y_flat)
+#             r2.update(yhat_flat, y_flat)
 
-            # --- classification + gated regression metrics ---
-            if cls_logits is not None and cls_idx is not None:
-                did_cls = True
+#             # --- classification + gated regression metrics ---
+#             if cls_logits is not None and cls_idx is not None:
+#                 did_cls = True
 
-                preds = cls_logits.argmax(dim=1)
-                correct_pixels += (preds == cls_idx).sum().item()
-                total_pixels += cls_idx.numel()
-                # Assuming update_confusion_matrix is defined in your utils
-                update_confusion_matrix(confmat, preds, cls_idx, num_classes=num_classes)
+#                 preds = cls_logits.argmax(dim=1)
+#                 correct_pixels += (preds == cls_idx).sum().item()
+#                 total_pixels += cls_idx.numel()
+#                 # Assuming update_confusion_matrix is defined in your utils
+#                 update_confusion_matrix(confmat, preds, cls_idx, num_classes=num_classes)
 
-                p_active = torch.softmax(cls_logits, dim=1)[:, active_class:active_class+1, :, :]
-                pred_mask = (p_active >= threshold).float()
-                yhat_g = yhat_reg * pred_mask
+#                 p_active = torch.softmax(cls_logits, dim=1)[:, active_class:active_class+1, :, :]
+#                 pred_mask = (p_active >= threshold).float()
+#                 yhat_g = yhat_reg * pred_mask
 
-                yhat_g_flat = yhat_g.view(yhat_g.size(0), -1)
-                mse_g.update(yhat_g_flat, y_flat)
-                r2_g.update(yhat_g_flat, y_flat)
+#                 yhat_g_flat = yhat_g.view(yhat_g.size(0), -1)
+#                 mse_g.update(yhat_g_flat, y_flat)
+#                 r2_g.update(yhat_g_flat, y_flat)
 
-    # average losses
-    total_avg = running_total / len(dataloader)
-    reg_avg = running_reg / len(dataloader)
-    cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
+#     # average losses
+#     total_avg = running_total / len(dataloader)
+#     reg_avg = running_reg / len(dataloader)
+#     cls_avg = (running_cls / cls_steps) if cls_steps > 0 else None
 
-    # finalize metrics
-    rmse = torch.sqrt(mse.compute()).item()
-    r2_val = r2.compute().item()
+#     # finalize metrics
+#     rmse = torch.sqrt(mse.compute()).item()
+#     r2_val = r2.compute().item()
 
-    if did_cls and total_pixels > 0:
-        pixel_acc = correct_pixels / total_pixels
+#     if did_cls and total_pixels > 0:
+#         pixel_acc = correct_pixels / total_pixels
 
-        tp = torch.diag(confmat).float()
-        fp = confmat.sum(dim=0).float() - tp
-        fn = confmat.sum(dim=1).float() - tp
-        denom = tp + fp + fn
-        iou = tp / torch.clamp(denom, min=1.0)
+#         tp = torch.diag(confmat).float()
+#         fp = confmat.sum(dim=0).float() - tp
+#         fn = confmat.sum(dim=1).float() - tp
+#         denom = tp + fp + fn
+#         iou = tp / torch.clamp(denom, min=1.0)
 
-        mean_iou = iou.mean().item()
-        iou_bg = iou[0].item()
-        iou_fg = iou[1].item()
+#         mean_iou = iou.mean().item()
+#         iou_bg = iou[0].item()
+#         iou_fg = iou[1].item()
 
-        rmse_gated = torch.sqrt(mse_g.compute()).item()
-        r2_gated = r2_g.compute().item()
-    else:
-        pixel_acc = mean_iou = iou_bg = iou_fg = None
-        rmse_gated = r2_gated = None
+#         rmse_gated = torch.sqrt(mse_g.compute()).item()
+#         r2_gated = r2_g.compute().item()
+#     else:
+#         pixel_acc = mean_iou = iou_bg = iou_fg = None
+#         rmse_gated = r2_gated = None
 
-    return {
-        "test_total_loss": total_avg,
-        "test_reg_loss": reg_avg,
-        "test_cls_loss": cls_avg,
-        "rmse": rmse,
-        "r2": r2_val,
-        "rmse_gated": rmse_gated,
-        "r2_gated": r2_gated,
-        "pixel_acc": pixel_acc,
-        "mean_iou": mean_iou,
-        "iou_bg": iou_bg,
-        "iou_fg": iou_fg,
-    }
+#     return {
+#         "test_total_loss": total_avg,
+#         "test_reg_loss": reg_avg,
+#         "test_cls_loss": cls_avg,
+#         "rmse": rmse,
+#         "r2": r2_val,
+#         "rmse_gated": rmse_gated,
+#         "r2_gated": r2_gated,
+#         "pixel_acc": pixel_acc,
+#         "mean_iou": mean_iou,
+#         "iou_bg": iou_bg,
+#         "iou_fg": iou_fg,
+#     }
 
 
-#This is for the PFI later on: 
+#This is for the PFI later on: This is the old Bundle
 # --- CREATE AND SAVE PFI BUNDLE ---
 
-pfi_bundle = {
-    # The raw arrays needed to shuffle the 13 variables (excluding LWI)
-    'valid_feats': valid_feats,
-    'valid_labels': valid_labels,
-    'valid_LWI': valid_LWI,
+# pfi_bundle = {
+#     # The raw arrays needed to shuffle the 13 variables (excluding LWI)
+#     'valid_feats': valid_feats,
+#     'valid_labels': valid_labels,
+#     'valid_LWI': valid_LWI,
     
-    # Conditionally save class labels based on your RUN_MODE
-    'valid_labels_class': valid_labels_class if cfg.get("use_cls_labels") else None,
+#     # Conditionally save class labels based on your RUN_MODE
+#     'valid_labels_class': valid_labels_class if cfg.get("use_cls_labels") else None,
     
-    # Metadata required to rebuild the dataloader and evaluation metrics
-    'cfg': cfg,
-    'BATCH_SIZE': BATCH_SIZE
-}
+#     # Metadata required to rebuild the dataloader and evaluation metrics
+#     'cfg': cfg,
+#     'BATCH_SIZE': BATCH_SIZE
+# }
 
-bundle_path = 'pfi_data_bundle_NOTotPrecip.pt'
-torch.save(pfi_bundle, bundle_path)
-print(f"PFI data bundle successfully saved to {bundle_path}")
+# bundle_path = 'pfi_data_bundle_NOTotPrecip.pt'
+# torch.save(pfi_bundle, bundle_path)
+# print(f"PFI data bundle successfully saved to {bundle_path}")
 
 
 
+#FIX LWI for Both 
+# # Convert xarray to numpy
+# us_LWI_test_array = testing_LWI_usa['lwi'].values  # shape (2774, 64, 64)
+# # # Add channel dimension: (samples, 1, lat, lon)
+# us_LWI_test_array = np.transpose(us_LWI_test_array, (2, 0, 1))
+# us_LWI_test_array = np.expand_dims(us_LWI_test_array, axis=1)  # shape (2774, 1, 64, 64)
 # #Make sure that LWI is a numpy array before putting into a custom dataset. 
-# Convert xarray to numpy
-us_LWI_test_array = testing_LWI_usa['lwi'].values  # shape (2774, 64, 64)
-# # Add channel dimension: (samples, 1, lat, lon)
-us_LWI_test_array = np.transpose(us_LWI_test_array, (2, 0, 1))
-us_LWI_test_array = np.expand_dims(us_LWI_test_array, axis=1)  # shape (2774, 1, 64, 64)
-
-# In[43]:
+# # Convert xarray to numpy
+# amazon_LWI_test_array = testing_LWI_amazon['lwi'].values  # shape (2199, 64, 64)
+# # # Add channel dimension: (samples, 1, lat, lon)
+# amazon_LWI_test_array = np.transpose(amazon_LWI_test_array, (2, 0, 1))
+# amazon_LWI_test_array = np.expand_dims(amazon_LWI_test_array, axis=1)  # shape (2199, 1, 64, 64)
 
 
-#Make sure that LWI is a numpy array before putting into a custom dataset. 
-# Convert xarray to numpy
-amazon_LWI_test_array = testing_LWI_amazon['lwi'].values  # shape (2199, 64, 64)
+# #USA TESTING FEATURES. 
+# us_test_features = testing_features_scaled_usa.to_array(dim="features")  # shape: (features, Datetime, Lat, Lon)
+# # # Reorder dimensions to match PyTorch (samples, channels, height, width)
+# us_test_features = us_test_features.transpose("Datetime", "features", "Latitudes", "Longitudes")
+# # Extract the underlying NumPy array
+# us_test_features = us_test_features.values  # shape: (15547, 13, 64, 64)
 
-# Add channel dimension: (samples, 1, lat, lon)
-# # Add channel dimension: (samples, 1, lat, lon)
-amazon_LWI_test_array = np.transpose(amazon_LWI_test_array, (2, 0, 1))
-amazon_LWI_test_array = np.expand_dims(amazon_LWI_test_array, axis=1)  # shape (2199, 1, 64, 64)
+# # In[45]:
 
-
-# In[44]:
-
-
-#We need to make sure that the testing features are correct. 
-us_test_features = testing_features_scaled_usa.to_array(dim="features")  # shape: (features, Datetime, Lat, Lon)
-
-# # Reorder dimensions to match PyTorch (samples, channels, height, width)
-us_test_features = us_test_features.transpose("Datetime", "features", "Latitudes", "Longitudes")
-
-# Extract the underlying NumPy array
-us_test_features = us_test_features.values  # shape: (15547, 13, 64, 64)
+# #AMAZON TESTING FEATURES 
+# #We need to make sure that the testing features are correct. 
+# amazon_test_features = testing_features_scaled_amazon.to_array(dim="features")  # shape: (features, Datetime, Lat, Lon)
+# # # Reorder dimensions to match PyTorch (samples, channels, height, width)
+# amazon_test_features = amazon_test_features.transpose("Datetime", "features", "Latitudes", "Longitudes")
+# # Extract the underlying NumPy array
+# amazon_test_features = amazon_test_features.values  # shape: (15547, 13, 64, 64)
 
 
-# In[45]:
+# In[72]
 
 
-#this is for the amazon data 
-#We need to make sure that the testing features are correct. 
-amazon_test_features = testing_features_scaled_amazon.to_array(dim="features")  # shape: (features, Datetime, Lat, Lon)
+# # Optional: get classification labels if your model expects them
+# amazon_test_labels_class = get_classlbls(testing_flashes_amazon['flashes_log'].values)
 
-# # Reorder dimensions to match PyTorch (samples, channels, height, width)
-amazon_test_features = amazon_test_features.transpose("Datetime", "features", "Latitudes", "Longitudes")
+# # Create the CustomDataset for Amazon
+# amazon_test_dataset = CustomDataset(
+#     features=amazon_test_features,
+#     labels=testing_flashes_amazon['flashes_log'].values,
+#     cls_labels=amazon_test_labels_class if cfg["use_cls_labels"] else None,
+#     LWI=amazon_LWI_test_array,
+#     transform=None  # no augmentation for test set
+# )
 
-# Extract the underlying NumPy array
-amazon_test_features = amazon_test_features.values  # shape: (15547, 13, 64, 64)
-
-
-
-# In[72]:
-
-
-# plot_lightning_importance(0.4091, 0.1540, df_pfi_final, df_csi_final)
-
-
-# In[65]:
-
-
-# Optional: get classification labels if your model expects them
-amazon_test_labels_class = get_classlbls(testing_flashes_amazon['flashes_log'].values)
-
-# Create the CustomDataset for Amazon
-amazon_test_dataset = CustomDataset(
-    features=amazon_test_features,
-    labels=testing_flashes_amazon['flashes_log'].values,
-    cls_labels=amazon_test_labels_class if cfg["use_cls_labels"] else None,
-    LWI=amazon_LWI_test_array,
-    transform=None  # no augmentation for test set
-)
-
-# DataLoader
-amazon_test_loader = DataLoader(
-    amazon_test_dataset,
-    batch_size=BATCH_SIZE,  # can keep same batch size
-    shuffle=False,          # do NOT shuffle test set
-    drop_last=False
-)
+# # DataLoader
+# amazon_test_loader = DataLoader(
+#     amazon_test_dataset,
+#     batch_size=BATCH_SIZE,  # can keep same batch size
+#     shuffle=False,          # do NOT shuffle test set
+#     drop_last=False
+# )
 
 
 # In[48]:
 
 
-# Optional: get classification labels if your model expects them
-us_test_labels_class = get_classlbls(testing_flashes_usa['flashes_log'].values)
+# # Optional: get classification labels if your model expects them
+# us_test_labels_class = get_classlbls(testing_flashes_usa['flashes_log'].values)
 
-# Create the CustomDataset for USA
-us_test_dataset = CustomDataset(
-    features=us_test_features,
-    labels=testing_flashes_usa['flashes_log'].values,
-    cls_labels=us_test_labels_class if cfg["use_cls_labels"] else None,
-    LWI=us_LWI_test_array,
-    transform=None  # no augmentation for test set
-)
+# # Create the CustomDataset for USA
+# us_test_dataset = CustomDataset(
+#     features=us_test_features,
+#     labels=testing_flashes_usa['flashes_log'].values,
+#     cls_labels=us_test_labels_class if cfg["use_cls_labels"] else None,
+#     LWI=us_LWI_test_array,
+#     transform=None  # no augmentation for test set
+# )
 
-# DataLoader
-us_test_loader = DataLoader(
-    us_test_dataset,
-    batch_size=BATCH_SIZE,  # same as training/validation
-    shuffle=False,          # do NOT shuffle test set
-    drop_last=False
-)
-
-
-# In[72]:
+# # DataLoader
+# us_test_loader = DataLoader(
+#     us_test_dataset,
+#     batch_size=BATCH_SIZE,  # same as training/validation
+#     shuffle=False,          # do NOT shuffle test set
+#     drop_last=False
+# )
 
 
-# usa_loader = DataLoader(usa_test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-# amazon_loader = DataLoader(amazon_test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+# # In[72]:
 
 
-# In[51]:
+# # usa_loader = DataLoader(usa_test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+# # amazon_loader = DataLoader(amazon_test_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
 
 
-test_results = test(
-    net1, us_test_loader, device, reg_criterion=reg_criterion,
-    alpha=alpha, gamma=gamma,
-    lambda_cls=cfg["lambda_cls"],
-    cls_criterion=cfg["cls_criterion"],
-    cls_key_candidates=cfg["cls_key_candidates"],
-    hurdle_train=cfg["hurdle_train"],
-    threshold=cfg["hurdle_thresh"],
-    active_class=cfg["active_class"],
-    return_reg_only=cfg["return_reg_only"],
-    # --- NEW ARGUMENT ---
-    pool_kernel_size=5 
-)
+# # In[51]:
 
 
-# In[52]:
+# test_results = test(
+#     net1, us_test_loader, device, reg_criterion=reg_criterion,
+#     alpha=alpha, gamma=gamma,
+#     lambda_cls=cfg["lambda_cls"],
+#     cls_criterion=cfg["cls_criterion"],
+#     cls_key_candidates=cfg["cls_key_candidates"],
+#     hurdle_train=cfg["hurdle_train"],
+#     threshold=cfg["hurdle_thresh"],
+#     active_class=cfg["active_class"],
+#     return_reg_only=cfg["return_reg_only"],
+#     # --- NEW ARGUMENT ---
+#     pool_kernel_size=5 
+# )
 
 
-# --- USA predictions ---
-predictions_usa = []
+#In[52]:
 
-with torch.no_grad():
-    for batch in us_test_loader:
-        inputs = batch['features'].float().to(device)
-        # Use forward_model to handle MultiTaskUNet
-        outputs = forward_model(net1, inputs, return_reg_only=cfg["return_reg_only"])
+
+# # --- USA predictions ---
+# predictions_usa = []
+
+# with torch.no_grad():
+#     for batch in us_test_loader:
+#         inputs = batch['features'].float().to(device)
+#         # Use forward_model to handle MultiTaskUNet
+#         outputs = forward_model(net1, inputs, return_reg_only=cfg["return_reg_only"])
         
-        # outputs could be dict or Tensor
-        if isinstance(outputs, dict):
-            yhat = outputs["regression"]
-        else:
-            yhat = outputs
+#         # outputs could be dict or Tensor
+#         if isinstance(outputs, dict):
+#             yhat = outputs["regression"]
+#         else:
+#             yhat = outputs
         
-        predictions_usa.append(yhat.cpu().numpy())
+#         predictions_usa.append(yhat.cpu().numpy())
 
-predictions_usa = np.concatenate(predictions_usa, axis=0)
+# predictions_usa = np.concatenate(predictions_usa, axis=0)
 
-# squeeze channel if it's 1
-if predictions_usa.shape[1] == 1:
-    predictions_usa = predictions_usa.squeeze(1)
+# # squeeze channel if it's 1
+# if predictions_usa.shape[1] == 1:
+#     predictions_usa = predictions_usa.squeeze(1)
 
 
-# --- Amazon predictions ---
-predictions_amazon = []
+# # --- Amazon predictions ---
+# predictions_amazon = []
 
-with torch.no_grad():
-    for batch in amazon_test_loader:
-        inputs = batch['features'].float().to(device)
-        outputs = forward_model(net1, inputs, return_reg_only=cfg["return_reg_only"])
+# with torch.no_grad():
+#     for batch in amazon_test_loader:
+#         inputs = batch['features'].float().to(device)
+#         outputs = forward_model(net1, inputs, return_reg_only=cfg["return_reg_only"])
         
-        if isinstance(outputs, dict):
-            yhat = outputs["regression"]
-        else:
-            yhat = outputs
+#         if isinstance(outputs, dict):
+#             yhat = outputs["regression"]
+#         else:
+#             yhat = outputs
         
-        predictions_amazon.append(yhat.cpu().numpy())
+#         predictions_amazon.append(yhat.cpu().numpy())
 
-predictions_amazon = np.concatenate(predictions_amazon, axis=0)
+# predictions_amazon = np.concatenate(predictions_amazon, axis=0)
 
-if predictions_amazon.shape[1] == 1:
-    predictions_amazon = predictions_amazon.squeeze(1)
+# if predictions_amazon.shape[1] == 1:
+#     predictions_amazon = predictions_amazon.squeeze(1)
 
-print("USA predictions:", predictions_usa.shape)
-print("Amazon predictions:", predictions_amazon.shape)
+# print("USA predictions:", predictions_usa.shape)
+# print("Amazon predictions:", predictions_amazon.shape)
 
 
 # In[53]:
 
 
-# Save predictions for USA
-predictions_usa_da = xr.DataArray(
-    predictions_usa,
-    dims=("Datetime", "Latitudes", "Longitudes"),
-    coords={
-        "Datetime": testing_features_scaled_usa["Datetime"].values,
-        "Latitudes": testing_features_scaled_usa["Latitudes"].values,
-        "Longitudes": testing_features_scaled_usa["Longitudes"].values,
-    },
-    name="predicted_flashes"
-)
-predictions_usa_da.to_netcdf("Regression_NOTotPrecip_USA_new.nc")
+# # Save predictions for USA
+# predictions_usa_da = xr.DataArray(
+#     predictions_usa,
+#     dims=("Datetime", "Latitudes", "Longitudes"),
+#     coords={
+#         "Datetime": testing_features_scaled_usa["Datetime"].values,
+#         "Latitudes": testing_features_scaled_usa["Latitudes"].values,
+#         "Longitudes": testing_features_scaled_usa["Longitudes"].values,
+#     },
+#     name="predicted_flashes"
+# )
+# predictions_usa_da.to_netcdf("Regression_NOTotPrecip_USA_new.nc")
 
-# Save predictions for Amazon
-predictions_amazon_da = xr.DataArray(
-    predictions_amazon,
-    dims=("Datetime", "Latitudes", "Longitudes"),
-    coords={
-        "Datetime": testing_features_scaled_amazon["Datetime"].values,
-        "Latitudes": testing_features_scaled_amazon["Latitudes"].values,
-        "Longitudes": testing_features_scaled_amazon["Longitudes"].values,
-    },
-    name="predicted_flashes"
-)
-predictions_amazon_da.to_netcdf("Regression_NOTotPrecip_Amazon_new.nc")
+# # Save predictions for Amazon
+# predictions_amazon_da = xr.DataArray(
+#     predictions_amazon,
+#     dims=("Datetime", "Latitudes", "Longitudes"),
+#     coords={
+#         "Datetime": testing_features_scaled_amazon["Datetime"].values,
+#         "Latitudes": testing_features_scaled_amazon["Latitudes"].values,
+#         "Longitudes": testing_features_scaled_amazon["Longitudes"].values,
+#     },
+#     name="predicted_flashes"
+# )
+# predictions_amazon_da.to_netcdf("Regression_NOTotPrecip_Amazon_new.nc")
 
-print("✅ Predictions saved for USA and Amazon as NetCDF files.")
-
-
+# print("✅ Predictions saved for USA and Amazon as NetCDF files.")
